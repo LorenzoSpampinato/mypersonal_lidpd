@@ -55,6 +55,19 @@ class EEGFeatureExtractor:
 
         # Step 2: Segment the data into fixed-length epochs (ignoring annotations)
         epochs = self.segment_epochs(preprocessed_raw, epoch_duration=30.0)
+        # Ottieni i canali da utilizzare, ad esempio quelli selezionati da EEGRegionsDivider
+        idx = self.idx_chs  # oppure un sottoinsieme se desiderato
+        picks = mne.pick_channels(epochs.info['ch_names'],
+                                  include=[epochs.ch_names[i] for i in idx if i < len(epochs.ch_names)])
+
+        # Estrai le coordinate 3D dei canali selezionati
+        sensor_loc = []
+        for i in picks:
+            loc = epochs.info['chs'][i]['loc'][:3]  # xyz coordinate
+            if not np.allclose(loc, 0):  # Evita locazioni nulle
+                sensor_loc.append(loc)
+        sensor_loc = np.array(sensor_loc)
+
 
         # Add bad epochs based on annotations, error folder, or arousals
         self.add_bad_epochs(preprocessed_raw, bad_epochs_muscle_flat=True, use_error_folder=True, arousals=True,
@@ -68,15 +81,28 @@ class EEGFeatureExtractor:
         #self.save_filtered_epochs(filtered_epoched_data, selected_indices, clinical_scores)
 
         # Extract features from the filtered epochs
+
+        #avg_features, feature_names, raw_features, channel_names, all_conmats, selected_channels, average_channels, specific_channels = self.extract_features(
         avg_features, feature_names, raw_features, channel_names, average_channels, specific_channels = self.extract_features(
             filtered_epoched_data, fs=preprocessed_raw.info['sfreq'], average_channels=False,
-            specific_channels=[4, 8, 15, 19, 26, 33, 35, 41, 43, 51, 59, 69, 78, 81, 86, 90, 101, 108, 151, 154, 162, 183, 196, 197, 202, 214])
+            specific_channels=[37, 26, 18, 54, 36, 15, 224, 1, 57, 43, 197, 204, 92, 74, 66, 90, 164, 192,
+                               209, 85, 100, 129, 171, 105, 108, 126, 151, 177, 137, 135, 157, 46, 34,
+                               12, 10, 48, 23, 6, 222, 51, 8, 196, 71, 79, 143, 181, 86, 162, 106, 117,
+                               139, 169, 115, 116, 150, 159, 62, 211, 83, 191, 113, 176, 147])
 
         # Save the extracted features
-        self.save_features(avg_features, feature_names, raw_features, channel_names, clinical_scores, selected_indices, sub_fold,
-                           average_channels, specific_channels)
-
-
+        self.save_features(avg_features, feature_names, raw_features, channel_names, clinical_scores, selected_indices, sub_fold,average_channels, specific_channels)
+        #
+        '''# Poi:
+        self.save_features(
+            avg_features, feature_names, raw_features, channel_names,
+            clinical_scores, selected_indices, sub_fold,
+            average_channels, specific_channels,
+            all_conmats=all_conmats,
+            selected_channels=selected_channels
+        )
+        '''
+        #
 
     def segment_epochs(self, preprocessed_raw, epoch_duration=30.0):
         """
@@ -314,7 +340,7 @@ class EEGFeatureExtractor:
         # Select indices of epochs with clinical scores '2' or '3' (N2 or N3)
         selected_indices = np.where(np.isin(clinical_scores, [2, 3]))[0]
         #selected_indices = np.where(np.isin(clinical_scores, [3]))[0]
-        print("Selected indices (clinical scores '2' or '3'):", selected_indices)
+        print("Selected indices (clinical scores '3'):", selected_indices)
 
         # Exclude bad epochs if they are marked in the raw object
         if hasattr(preprocessed_raw, '_bad_epochs'):
@@ -324,7 +350,7 @@ class EEGFeatureExtractor:
 
         # Filter epochs based on the selected indices
         filtered_epoched_data = epochs[selected_indices]
-        print(f"Selected {len(selected_indices)} epochs with clinical scores '2' or '3', excluding bad epochs.")
+        print(f"Selected {len(selected_indices)} epochs with clinical scores '3', excluding bad epochs.")
 
         return filtered_epoched_data, selected_indices, clinical_scores
 
@@ -345,13 +371,12 @@ class EEGFeatureExtractor:
         save_base_path = os.path.join(self.save_path, "PLOT", self.only_class, self.only_patient)
 
         # Create separate folders for N2 and N3
-        n3_save_path = os.path.join(save_base_path, "N3_EPOCHS_SELECTED")
-        n2_save_path = os.path.join(save_base_path, "N2_EPOCHS_SELECTED")
+        n3_save_path = os.path.join(save_base_path, "N3_0.5Hz_EPOCHS_SELECTED")
+        n2_save_path = os.path.join(save_base_path, "N2_0.5Hz_EPOCHS_SELECTED")
 
         os.makedirs(n3_save_path, exist_ok=True)
         os.makedirs(n2_save_path, exist_ok=True)
 
-        # Internal function for plotting and saving epoch data
         def plot_and_save(epoch_data, title, save_path, channels_to_plot):
             """
             Helper function to create plots for the given epoch and save them to disk.
@@ -381,6 +406,11 @@ class EEGFeatureExtractor:
             plt.savefig(save_path)
             plt.close(fig)
             print(f"Saved plot to: {save_path}")
+
+            # Save the epoch data as .npy
+            npy_save_path = save_path.replace('.png', '.npy')
+            np.save(npy_save_path, epoch_data.get_data())
+            print(f"Saved epoch data as .npy to: {npy_save_path}")
 
         # Save each epoch
         for idx, epoch_idx in enumerate(selected_indices):
@@ -437,12 +467,32 @@ class EEGFeatureExtractor:
             average_channels=average_channels,
             specific_channels=specific_channels
         )
+        '''
+        # --- Channel Connectivity Feature Extraction ---
+        start_time = time.time()
+        cc_extractor = ChannelConnectivityFeatureExtractor(
+            epochs=filtered_epoched_data,
+            fs=fs,
+            ch_reg=sorted(self.regions),
+            save_path=self.save_path,
+            only_stage=self.only_stage,
+            only_patient=self.only_patient,
+            only_class = self.only_class
+        )
 
+        avg_features, feature_names, raw_features, channel_names, average_channels, specific_channels, all_conmats, selected_channels = cc_extractor.extract_features_c(
+            average_channels=average_channels,
+            specific_channels=specific_channels
+        )
+        '''
         # Calculate processing time
         processing_times['Single-Channel Feature Extraction'] = time.time() - start_time
         print(f"Feature extraction completed in {processing_times['Single-Channel Feature Extraction']} seconds.")
 
         return avg_features, feature_names, raw_features, channel_names, average_channels, specific_channels
+        #return avg_features, feature_names, raw_features, channel_names, all_conmats, selected_channels, average_channels, specific_channels
+
+
 
     def save_features(self, avg_features, feature_names, raw_features, channel_names, clinical_scores, selected_indices, sub_fold,
                       average_channels, specific_channels):
@@ -473,11 +523,11 @@ class EEGFeatureExtractor:
         # Paths for saving files
         avg_save_path = os.path.join(
             res_sub_fold,
-            os.path.basename(res_sub_fold) + f'{avg_suffix}_N2N3justentropy{specific_suffix}.npz'
+            os.path.basename(res_sub_fold) + f'{avg_suffix}_N2_N3_SWA_ENTROPY{specific_suffix}.npz'
         )
         electrode_save_path = os.path.join(
             res_sub_fold,
-            os.path.basename(res_sub_fold) + f'_N2N3justentropy{specific_suffix}.npz'
+            os.path.basename(res_sub_fold) + f'_N3_SWA_ENTROPY{specific_suffix}.npz'
         )
 
         # Determine whether to save brain regions or specific channels
@@ -513,4 +563,65 @@ class EEGFeatureExtractor:
         )
         print(f"Electrode features saved for {sub_fold} in {electrode_save_path}")
 
+'''
+    def save_features(self, avg_features, feature_names, raw_features, channel_names,
+                      clinical_scores, selected_indices, sub_fold,
+                      average_channels, specific_channels,
+                      all_conmats=None, selected_channels=None):
+        """
+        Save extracted features and optionally connectivity matrices.
+        """
 
+        brain_regions = [reg.split('_')[1] for reg in sorted(self.regions)]
+        res_sub_fold = sub_fold.replace(self.data_path, os.path.join(self.save_path, 'Features'))
+        os.makedirs(res_sub_fold, exist_ok=True)
+
+        avg_suffix = "_mean" if average_channels else "_no_mean"
+        specific_suffix = f"_specific_channels_{len(specific_channels)}" if specific_channels else "_all_channels"
+
+        avg_save_path = os.path.join(
+            res_sub_fold,
+            os.path.basename(res_sub_fold) + f'{avg_suffix}_N3conn100{specific_suffix}.npz'
+        )
+        electrode_save_path = os.path.join(
+            res_sub_fold,
+            os.path.basename(res_sub_fold) + f'_N3conn100{specific_suffix}.npz'
+        )
+
+        # Metadata per avg features
+        avg_file_metadata = {
+            "data": avg_features,
+            "feats": feature_names,
+            "selected_indices": selected_indices,
+            "epoch_labels": clinical_scores[selected_indices]
+        }
+
+        if not average_channels and specific_channels:
+            avg_file_metadata["channels"] = specific_channels
+        else:
+            avg_file_metadata["regions"] = brain_regions
+
+        # Salvataggio features aggregate
+        np.savez(avg_save_path, **avg_file_metadata)
+        print(f"Mean features saved for {sub_fold} in {avg_save_path}")
+
+        # Metadata per raw features
+        raw_file_metadata = {
+            "data": raw_features,
+            "feats": feature_names,
+            "regions": brain_regions,
+            "channels": channel_names,
+            "selected_indices": selected_indices,
+            "epoch_labels": clinical_scores[selected_indices]
+        }
+
+        # Se hai matrici di connettività e canali, puoi salvarle insieme
+        if all_conmats is not None:
+            raw_file_metadata["connectivity_matrices"] = np.array(all_conmats)
+        if selected_channels is not None:
+            raw_file_metadata["connectivity_channels"] = selected_channels
+
+        np.savez(electrode_save_path, **raw_file_metadata)
+        print(f"Electrode features saved for {sub_fold} in {electrode_save_path}")
+
+'''

@@ -19,7 +19,7 @@ def process_early_late(input_npy, output_csv):
     epochs = np.arange(len(sleep_stages))
 
     # Converte in DataFrame
-    df = pd.DataFrame({'Epochs': epochs, 'Stage': sleep_stages})
+    df = pd.DataFrame({'Epoch': epochs, 'Stage': sleep_stages})
 
     # Filtra solo la parte NREM (N1, N2, N3)
     nrem_df = df[df['Stage'].isin([1, 2, 3])]
@@ -48,14 +48,14 @@ def process_early_late(input_npy, output_csv):
     combined_sleep = pd.concat([early_sleep, late_sleep])
 
     # Trova le epoche che non sono early né late e chiamale "Not considered"
-    not_considered = nrem_df[~nrem_df['Epochs'].isin(combined_sleep['Epochs'])]
+    not_considered = nrem_df[~nrem_df['Epoch'].isin(combined_sleep['Epoch'])]
     not_considered['Phase'] = 'Not considered'
 
     # Combina tutti i dati (early, late, not considered)
     final_sleep = pd.concat([combined_sleep, not_considered])
 
     # Ordina i dati in base al numero di epoca
-    final_sleep = final_sleep.sort_values(by="Epochs")
+    final_sleep = final_sleep.sort_values(by="Epoch")
 
     # Filtra solo le epoche con stadio N2 o N3
     n2_n3_sleep = final_sleep[final_sleep['Stage'].isin([2, 3])]
@@ -98,7 +98,7 @@ def assign_phases_to_patient(features_path, phases_path, output_path):
     )
 
     # Merge basato su Epochs
-    merged_df = pd.merge(features_df, phases_df[['Epochs', 'Phase_Assigned']], on='Epochs', how='left')
+    merged_df = pd.merge(features_df, phases_df[['Epoch', 'Phase_Assigned']], on='Epoch', how='left')
 
     # Salva il file aggiornato per il paziente
     merged_df.to_csv(output_path, index=False)
@@ -112,11 +112,11 @@ def process_all_patients(features_folder_path, phases_folder_path, output_folder
     os.makedirs(output_folder, exist_ok=True)
 
     feature_files = [f for f in os.listdir(features_folder_path) if
-                     f.endswith("_no_mean_N2N3FILTERS_specific_channels_150.csv")]
+                     f.endswith("_N3conn100_specific_channels_149.csv")]
     print("File delle feature trovati:", feature_files)
 
     for feature_file in feature_files:
-        patient_name = feature_file.replace("_no_mean_N2N3FILTERS_specific_channels_150.csv", "")
+        patient_name = feature_file.replace("_N3conn100_specific_channels_149.csv", "")
         print("Elaborazione del paziente:", patient_name)
         features_path = os.path.join(features_folder_path, feature_file)
         print("Path delle feature:", features_path)
@@ -155,10 +155,10 @@ def main():
     # Cartelle di input e output
     input_folder = r"C:\Users\Lorenzo\Desktop\sleep_stages_09_12\clinical_annotations"
     output_folder_phases = r"C:\Users\Lorenzo\Desktop\sleep_stages_09_12\clinical_annotations"
-    features_folder_path = r"D:\TESI\prova statistica\N2N3FILTERS"
-    output_folder_features = r"D:\TESI\prova statistica\N2N3FILTERS"
+    features_folder_path = r"D:\TESI\prova statistica\N3CONN100_specific_channels_149"
+    output_folder_features = r"D:\TESI\prova statistica\N3CONN100_specific_channels_149"
     final_output_path = os.path.join(features_folder_path,
-                                     "_no_mean_N2N3FILTERS_specific_channels_150_aggregated_with_phases.csv")
+                                     "_N3CONN100_specific_channels_149_aggregated_with_phases.csv")
 
     # Step 1: Elaborazione dei file .npy per estrarre early/late e salvarli per ogni paziente
     process_all_sleep_files(input_folder, output_folder_phases)

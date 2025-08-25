@@ -82,7 +82,7 @@ if __name__ == "__main__":
                 # Definisci il percorso completo della cartella del paziente
                 subject_path = os.path.join(class_folder, sub_fold)
                 ###
-
+                '''
                 # Check se la cartella termina con '.mff' e definisci mff_path di conseguenza
                 mff_path = subject_path if subject_path.endswith('.mff') else subject_path + '.mff'
 
@@ -90,15 +90,15 @@ if __name__ == "__main__":
                 if not subject_path.endswith('.mff') and os.path.exists(subject_path):
                     print(f"Renaming {subject_path} to {mff_path}...")
                     os.rename(subject_path, mff_path)
-
+                '''
                 ###
 
                 # --------------------------------------- Carica i dati grezzi --------------------------------------------------
                 data_loader = EEGDataLoader(args.data_path, args.save_path, class_name, sub_fold)
                 print("Save path:", args.save_path)
                 #
-                raw = data_loader.load_and_prepare_data(mff_path, args.save_path, sub_fold)
-                #raw = data_loader.load_and_prepare_data(subject_path, args.save_path, sub_fold)
+                #raw = data_loader.load_and_prepare_data(mff_path, args.save_path, sub_fold)
+                raw = data_loader.load_and_prepare_data(subject_path, args.save_path, sub_fold)
 
                 # --------------------------------------- Preprocessing -----------------------------------------------------
                 if args.run_preprocess or args.run_bad_interpolation:
@@ -116,8 +116,8 @@ if __name__ == "__main__":
                         args.data_path, args.label_path, args.save_path, class_name, args.only_class, sub_fold
                     )
                     #
-                    #feature_extractor.process_and_save_features(subject_path, preprocessed_raw)
-                    feature_extractor.process_and_save_features(mff_path, preprocessed_raw)
+                    feature_extractor.process_and_save_features(subject_path, preprocessed_raw)
+                    #feature_extractor.process_and_save_features(mff_path, preprocessed_raw)
 
                 # --------------------------------  Aggregating labels + Dataframe definition  ---------------------------------
                 if args.run_aggregation:

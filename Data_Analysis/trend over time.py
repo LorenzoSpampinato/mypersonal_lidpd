@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 import matplotlib
+from matplotlib.gridspec import GridSpec
+
 
 
 
@@ -43,7 +45,7 @@ def plot_epochs_per_subject_by_group_with_linear_regression(data, feature_name, 
     if num_groups == 1:
         axes = [axes]
 
-    vertical_offset_step = 0.15 * (data[feature_name].max() - data[feature_name].min())
+    vertical_offset_step = 0.01 * (data[feature_name].max() - data[feature_name].min())
 
     for i, group in enumerate(groups):
         group_data = channel_data[channel_data['Group'] == group]
@@ -234,6 +236,52 @@ def plot_epochs_per_subject_by_group_with_linear_regression(data, feature_name, 
     plt.tight_layout()
     plt.show()
 
+
+def plot_subjects_by_group_phases(data, feature_name, channel_name, subject_color_map):
+    """ Crea piccoli subplots individuali per soggetto, con punti colorati per fase (senza regressione). """
+    phase_column = 'Phase_Assigned' if 'Phase_Assigned' in data.columns else None
+    channel_data = data[data['Channel'] == channel_name]
+    groups = ['CTL', 'DNV', 'ADV', 'DYS']
+
+    subject_list = sorted(channel_data['Subject'].unique())
+    n_subjects = len(subject_list)
+
+    n_cols = 6  # numero di colonne nei subplot
+    n_rows = int(np.ceil(n_subjects / n_cols))
+
+    fig = plt.figure(figsize=(n_cols * 3, n_rows * 2.5))
+    gs = GridSpec(n_rows, n_cols, figure=fig)
+
+    for idx, subject in enumerate(subject_list):
+        subject_data = channel_data[channel_data['Subject'] == subject].copy().reset_index(drop=True)
+        group = subject_data['Group'].iloc[0]
+        ax = fig.add_subplot(gs[idx // n_cols, idx % n_cols])
+
+        original_index = subject_data.index.values
+        normalized_index = (
+            (original_index - original_index.min()) / (original_index.max() - original_index.min()) * 100
+            if len(original_index) > 1 else original_index
+        )
+
+        # Colori per fasi
+        if phase_column:
+            colors = subject_data[phase_column].map(
+                {'Early': 'red', 'Late': 'blue'}
+            ).fillna('black')
+        else:
+            colors = ['black'] * len(subject_data)
+
+        ax.scatter(normalized_index, subject_data[feature_name], s=6, c=colors)
+
+        ax.set_title(f"{group}-{subject}", fontsize=9)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.grid(True, linestyle='--', alpha=0.4)
+
+    plt.suptitle(f"Epoch Data per Soggetto - Channel: {channel_name}", fontsize=16)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.92)
+    plt.show()
 
 ######################################################################################################################
 ######################################################################################################################
@@ -495,6 +543,50 @@ def plot_epochs_per_subject_by_group_with_polynomial_regression(data, feature_na
 
     return
 
+def plot_group_mean_and_std_over_normalized_sleep(data, feature_name, channel_name):
+    channel_data = data[data['Channel'] == channel_name]
+    groups = ['CTL', 'DNV', 'ADV', 'DYS']
+    num_bins = 100  # punti percentuali
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10), sharex=True, sharey=True)
+    axes = axes.flatten()
+
+    for i, group in enumerate(groups):
+        group_data = channel_data[channel_data['Group'] == group]
+        grouped = []
+
+        # Normalizza ogni soggetto a 100 punti
+        for subject in group_data['Subject'].unique():
+            subject_data = group_data[group_data['Subject'] == subject].copy()
+            subject_data = subject_data.sort_index()
+
+            # Crea indice normalizzato
+            subject_data['Normalized_Index'] = np.linspace(0, 100, len(subject_data))
+
+            # Bin per ottenere valori medi nei punti % comuni
+            binned = subject_data.groupby(pd.cut(subject_data['Normalized_Index'], bins=num_bins)).agg({feature_name: 'mean'})
+            binned.index = np.linspace(0, 100, num_bins)
+            grouped.append(binned[feature_name].values)
+
+        # Calcola media e std across soggetti
+        group_array = np.array(grouped)
+        mean_vals = np.nanmean(group_array, axis=0)
+        std_vals = np.nanstd(group_array, axis=0)
+        percent_axis = np.linspace(0, 100, num_bins)
+
+        ax = axes[i]
+        ax.plot(percent_axis, mean_vals, label='Mean', color='blue')
+        ax.fill_between(percent_axis, mean_vals - std_vals, mean_vals + std_vals, alpha=0.3, color='blue', label='±1 STD')
+
+        ax.set_title(f"Group: {group}", fontsize=14)
+        ax.set_xlabel("Normalized Sleep Progression (%)")
+        ax.set_ylabel(feature_name)
+        ax.grid(True)
+        ax.legend()
+
+    plt.suptitle(f"Mean ± STD of {feature_name} across subjects (Channel {channel_name})", fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
 
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
@@ -560,9 +652,10 @@ from sklearn.preprocessing import MinMaxScaler
 
 
 # Carica i dati
-file_path = r"C:\Users\Lorenzo\Desktop\prova statistica\N2N3Zspectral\_no_mean_N2N3Zspectral_specific_channels_5_aggregated_with_phases.csv"
+file_path = r"D:\TESI\prova statistica\N2N3multitaperMeanPSD_specific_channels_149\_N2N3multitaperMeanPSD_specific_channels_149_aggregated_with_phases.csv"
 data = pd.read_csv(file_path)
-#data = data[data['Stage'] == 3]
+data = data[data['Stage'] == 3]
+print(data)
 
 # Identifica le colonne numeriche (escludendo le categoriali)
 numeric_columns = data.select_dtypes(include=[np.number]).columns
@@ -572,8 +665,8 @@ numeric_columns = data.select_dtypes(include=[np.number]).columns
 #data[numeric_columns] = scaler.fit_transform(data[numeric_columns])
 
 # Imposta la feature e il canale da analizzare
-feature_to_analyze = "0. Absolute Low Delta Power"
-selected_channel = "E26"
+feature_to_analyze = "Mean PSD Total Delta"
+selected_channel = 15
 
 # Trova il miglior grado polinomiale per ogni gruppo
 best_degrees = find_best_poly_degree(data, feature_to_analyze, selected_channel, max_degree=40)
@@ -585,6 +678,9 @@ for group, degree in best_degrees.items():
     print(f"Group {group}: Degree {degree}")
 
 # Genera il grafico separato per ogni gruppo (CTL, ADV, DNV, DYS)
-plot_epochs_per_subject_by_group_with_linear_regression(data, feature_to_analyze, selected_channel, subject_color_map=subject_color_map)
-plot_epochs_per_subject_by_group_with_polynomial_regression(data, feature_to_analyze, selected_channel, poly_degree=6, subject_color_map=subject_color_map)
+#plot_group_mean_and_std_over_normalized_sleep(data, feature_to_analyze, selected_channel)
+#plot_epochs_per_subject_by_group_with_linear_regression(data, feature_to_analyze, selected_channel, subject_color_map=subject_color_map)
+plot_subjects_by_group_phases(data, feature_to_analyze, selected_channel, subject_color_map=subject_color_map)
+
+#plot_epochs_per_subject_by_group_with_polynomial_regression(data, feature_to_analyze, selected_channel, poly_degree=6, subject_color_map=subject_color_map)
 

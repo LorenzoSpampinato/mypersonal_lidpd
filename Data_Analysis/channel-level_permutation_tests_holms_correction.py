@@ -108,7 +108,7 @@ SYMBOL_MAP = {'CTL': '+', 'DNV': '§', 'ADV': '$', 'DYS': '#'}
 
 
 def analyze_and_plot(data, feature_name, group_order=['CTL', 'DNV', 'ADV', 'DYS'],
-                     selected_channels=None, output_excel="results.xlsx", n_resamples=5000):
+                     selected_channels=None, output_excel="results.xlsx", n_resamples=2):
     # Imposta l'ordine dei gruppi
     data['Group'] = pd.Categorical(data['Group'], categories=group_order, ordered=True)
     filtered_data = data[data['Phase_Assigned'].isin(['Early', 'Late'])]
@@ -170,16 +170,16 @@ def analyze_and_plot(data, feature_name, group_order=['CTL', 'DNV', 'ADV', 'DYS'
                     data1, data2 = data_groups[i], data_groups[j]
                     mean_g1, mean_g2 = np.mean(data1), np.mean(data2)
 
-                    if mean_g1> mean_g2:
+                    if mean_g1< mean_g2:
                         res = permutation_test([data1, data2], independent_t_stat,
                                                permutation_type='independent', n_resamples=n_resamples,
-                                               alternative='greater', vectorized=False)
+                                               alternative='less', vectorized=False)
                         key = f"{g1} vs {g2}"  # direzione coerente con g2 - g1
                         delta_stat = res.statistic  # già g2 - g1
                     else:
                         res = permutation_test([data2, data1], independent_t_stat,
                                                permutation_type='independent', n_resamples=n_resamples,
-                                               alternative='greater', vectorized=False)
+                                               alternative='less', vectorized=False)
                         key = f"{g2} vs {g1}"  # ancora direzione coerente con g2 - g1
                         delta_stat = res.statistic
 
@@ -248,82 +248,8 @@ def analyze_and_plot(data, feature_name, group_order=['CTL', 'DNV', 'ADV', 'DYS'
             else:
                 print("No significant pairwise comparisons.")
 
-    '''
-    def compare_early_late(channel_means, feature_name, label):
-        raw_pvals = []
-        results = []
-        group_pvals = {}
+        return post_hoc
 
-        for group in channel_means['Group'].unique():
-            group_data = channel_means[channel_means['Group'] == group]
-
-            pivot = group_data.pivot(index='Channel', columns='Phase_Assigned', values=feature_name)
-            pivot = pivot.dropna(subset=['Early', 'Late'])
-
-            early = pivot['Early'].values
-            late = pivot['Late'].values
-
-            if len(early) == 0:
-                results.append((group, None, None, None, None))
-                group_pvals[group] = None
-                continue
-
-            res = permutation_test([late, early], paired_t_stat,
-                                   permutation_type='samples',
-                                   n_resamples=n_resamples,
-                                   alternative='two-sided',
-                                   vectorized=False)
-            raw_pvals.append(res.pvalue)
-
-            mean_early = np.mean(early)
-            std_early = np.std(early, ddof=1)
-            mean_late = np.mean(late)
-            std_late = np.std(late, ddof=1)
-
-            results.append((group, res.statistic, res.pvalue, (mean_early, std_early), (mean_late, std_late)))
-
-        m = len(raw_pvals)
-        if m > 0:
-            raw_arr = np.array(raw_pvals)
-            idx_sort = np.argsort(raw_arr)
-            sorted_p = raw_arr[idx_sort]
-
-            p_holm_sorted = np.minimum(1, (m - np.arange(m)) * sorted_p)
-            for i in range(m - 1):
-                if p_holm_sorted[i + 1] < p_holm_sorted[i]:
-                    p_holm_sorted[i + 1] = p_holm_sorted[i]
-
-            p_holm = np.empty(m)
-            p_holm[idx_sort] = p_holm_sorted
-        else:
-            p_holm = []
-
-        for i, tpl in enumerate(results):
-            grp, stat, raw_p, (mean_early, std_early), (mean_late, std_late) = tpl
-            corrected_p = p_holm[i] if raw_p is not None else None
-            early_late_results.append({
-                'Group': grp,
-                'stat': stat,
-                'p': corrected_p,
-                'Early mean': mean_early,
-                'Early std': std_early,
-                'Late mean': mean_late,
-                'Late std': std_late
-            })
-            group_pvals[grp] = corrected_p
-
-        print(f"===== Early vs Late {label} (Holm corrected p) =====")
-        for idx, (grp, stat, _, (mean_early, std_early), (mean_late, std_late)) in enumerate(results):
-            if stat is None:
-                print(f"{grp}: nessun dato appaiato.")
-            else:
-                p_corr = p_holm[idx] if idx < len(p_holm) else None
-                p_str = f"{p_corr:.4f}" if p_corr is not None else "None"
-                print(f"{grp}: paired t = {stat:.2f}, p = {p_str}")
-                print(f"  Early: {mean_early:.2f} ± {std_early:.2f}, Late: {mean_late:.2f} ± {std_late:.2f}")
-
-        return group_pvals
-    '''
 
     def compare_group_differences(channel_means, feature_name, label):
         # Pivot per ottenere la differenza Early-Late per ogni canale e gruppo
@@ -335,7 +261,8 @@ def analyze_and_plot(data, feature_name, group_order=['CTL', 'DNV', 'ADV', 'DYS'
         pivot = pivot.dropna(subset=['Early', 'Late'])
 
         # Calcola la differenza Early - Late
-        pivot['Diff'] = pivot['Early'] - pivot['Late'] #############################################
+        #pivot['Diff'] = pivot['Late'] - pivot['Early'] #############################################
+        pivot['Diff'] = pivot['Early'] - pivot['Late']
 
         # Raccolta delle differenze per gruppo
         group_diffs = pivot.groupby('Group')['Diff'].apply(list)
@@ -459,18 +386,6 @@ def analyze_and_plot(data, feature_name, group_order=['CTL', 'DNV', 'ADV', 'DYS'
     if selected_channels is not None:
         print("Permutation test on selected (frontal) channels")
         statistical_tests(channel_means_selected, "Frontal Channels")
-
-    '''
-    # Early vs Late comparison
-    #print("Early vs Late comparison - All Channels")
-    #all_pvals = compare_early_late(channel_means_all, feature_name, "All Channels")
-    #print("All Channels - Early vs Late p-values:", all_pvals)
-
-    #frontal_pvals = None
-    #if selected_channels is not None:
-    #    print("Early vs Late comparison - Frontal Channels")
-    #    frontal_pvals = compare_early_late(channel_means_selected, feature_name, "Frontal Channels")
-    #    print("Frontal Channels - Early vs Late p-values:", frontal_pvals)
     '''
     # Differenze nei delta tra gruppi
     print("Comparing Early-Late differences across groups - All Channels")
@@ -492,9 +407,12 @@ def analyze_and_plot(data, feature_name, group_order=['CTL', 'DNV', 'ADV', 'DYS'
         #df_early_late_results.to_excel(writer, sheet_name="Early vs Late Results", index=False)
         df_compare_group_difference.to_excel(writer, sheet_name="delta difference across groups", index=False)
     print("Excel file with results saved as:", output_excel)
-    '''
+
     #def plot_data(post_hoc_all=None, post_hoc_frontal=None, all_pvals=None, frontal_pvals=None):
     def plot_data(post_hoc_all=None, post_hoc_frontal=None):
+        import seaborn as sns
+        from matplotlib.patches import Patch
+        from matplotlib.lines import Line2D
         color_map = {'Early': 'red', 'Late': 'blue'}
         offset = {'Early': -0.2, 'Late': 0.2}
         plt.figure(figsize=(12, 7))
@@ -505,172 +423,303 @@ def analyze_and_plot(data, feature_name, group_order=['CTL', 'DNV', 'ADV', 'DYS'
         y_min, y_max = (min(all_vals), max(all_vals)) if all_vals else (0, 1)
         y_range = y_max - y_min
         symbol_gap = 0.1 * y_range
-        #plt.ylim(bottom=y_min - 1.5 * symbol_gap, top=y_max + 3 * symbol_gap)
         plt.ylim(bottom=y_min - 1.5 * symbol_gap, top=y_max + 1 * symbol_gap)
 
-        # Plot All Channels (rossi e blu)
-        for phase in ['Early', 'Late']:
-            phase_data = channel_means_all[channel_means_all['Phase_Assigned'] == phase]
-            x = [group_order.index(g) + offset[phase] for g in phase_data['Group']]
-            y = phase_data[feature_name]
-            plt.scatter(x, y,
-                        color=color_map[phase],
-                        label=f"{phase} - All Channels",
-                        alpha=0.6,
-                        edgecolors='black',
-                        s=75)
+        # --- Strip plot: All Channels ---
+        df_all = channel_means_all.copy()
+        sns.stripplot(data=df_all,
+                      x='Group',
+                      y=feature_name,
+                      hue='Phase_Assigned',
+                      dodge=True,
+                      jitter=True,
+                      alpha=0.7,
+                      palette=color_map,
+                      order=group_order,
+                      hue_order=['Early', 'Late'],
+                      edgecolor='black',
+                      linewidth=1,
+                      size=6)
 
-            # Simboli $§# per All Channels
+        # Simboli $§# per All Channels
+        for phase in ['Early', 'Late']:
+            phase_data = df_all[df_all['Phase_Assigned'] == phase]
             for g, marks in sig_marks['All Channels'].get(phase, {}).items():
                 if marks:
                     xi = group_order.index(g) + offset[phase]
-                    #max_y = phase_data[phase_data['Group'] == g][feature_name].max()
-                    #y0 = max_y + symbol_gap
                     min_y = phase_data[phase_data['Group'] == g][feature_name].min()
                     y0 = min_y - symbol_gap
-
                     txt = ''.join(marks)
                     plt.text(xi, y0, txt, color=color_map[phase], ha='center', va='bottom', fontsize=14)
 
-            # Linee verticali che collegano le medie Early e Late
-            for i, g in enumerate(group_order):
-                # All Channels
-                early_val = \
-                channel_means_all[(channel_means_all['Phase_Assigned'] == 'Early') & (channel_means_all['Group'] == g)][
-                    feature_name].mean()
-                late_val = \
-                channel_means_all[(channel_means_all['Phase_Assigned'] == 'Late') & (channel_means_all['Group'] == g)][
-                    feature_name].mean()
-                if not np.isnan(early_val) and not np.isnan(late_val):
-                    plt.plot([i + 0.05, i + 0.05], [early_val, late_val], color='black', linewidth=2)
 
-                # Frontal Channels
-                if not channel_means_selected.empty:
-                    early_val_f = channel_means_selected[
-                        (channel_means_selected['Phase_Assigned'] == 'Early') & (channel_means_selected['Group'] == g)][
-                        feature_name].mean()
-                    late_val_f = channel_means_selected[
-                        (channel_means_selected['Phase_Assigned'] == 'Late') & (channel_means_selected['Group'] == g)][
-                        feature_name].mean()
-                    if not np.isnan(early_val_f) and not np.isnan(late_val_f):
-                        plt.plot([i - 0.05, i - 0.05], [early_val_f, late_val_f], color='green', linewidth=2)
+        # --- Strip plot: Frontal Channels ---
+        df_frontal = channel_means_selected.copy()
+        if not df_frontal.empty:
+            sns.stripplot(data=df_frontal,
+                          x='Group',
+                          y=feature_name,
+                          hue='Phase_Assigned',
+                          dodge=True,
+                          jitter=True,
+                          alpha=0.7,
+                          palette={'Early': 'green', 'Late': 'green'},
+                          order=group_order,
+                          hue_order=['Early', 'Late'],
+                          edgecolor='black',
+                          linewidth=1,
+                          size=6)
 
-        # Plot Frontal Channels (verdi)
-        if not channel_means_selected.empty:
+            # Simboli $§# per Frontal Channels
             for phase in ['Early', 'Late']:
-                phase_data = channel_means_selected[channel_means_selected['Phase_Assigned'] == phase]
-                x = [group_order.index(g) + offset[phase] for g in phase_data['Group']]
-                y = phase_data[feature_name]
-                plt.scatter(x, y,
-                            color='green',
-                            alpha=0.4,
-                            edgecolors='red' if phase == 'Early' else 'blue',
-                            s=75,
-                            label='Frontal Channels' if phase == 'Early' else None)
-
-                # Simboli $§# per Frontal Channels
+                phase_data = df_frontal[df_frontal['Phase_Assigned'] == phase]
                 for g in group_order:
                     marks = sig_marks['Frontal Channels'].get(phase, {}).get(g, [])
                     if marks:
                         xi = group_order.index(g) + offset[phase]
-
-                        # Trova il min_y dei dati frontal
-                        min_y_f = phase_data[phase_data['Group'] == g][feature_name].min()
-                        # Trova il min_y dei dati all (per stesso gruppo e fase)
-                        min_y_all = channel_means_all[
-                            (channel_means_all['Group'] == g) & (channel_means_all['Phase_Assigned'] == phase)
+                        min_y_all = df_all[
+                            (df_all['Group'] == g) & (df_all['Phase_Assigned'] == phase)
                             ][feature_name].min()
-
-                        # y0 dei frontal = simbolo all - 1.0
                         y0_all = min_y_all - symbol_gap
-                        #y0_all = min_y_all + symbol_gap
-                        #y0 = y0_all -0.025 #per sample entropy
+                        y0 = y0_all - 7      #per SWA
+                        #y0 = y0_all - 0.025 # per sample entropy
+                        #y0 = y0_all - 0.005  # per spectral entropy
                         #y0 = y0_all - 0.025  # per Katz FD
                         #y0 = y0_all - 0.015  #correlation dimension
-                        y0 = y0_all -7 # per slow wave activity
-                        #y0 = y0_all - 0.005 # per spectral entropy
-
                         txt = ''.join(marks)
                         print(f"Plotting {g} {phase} at ({xi}, {y0}) with marks: {marks}")
                         plt.text(xi, y0, txt, color='green', ha='center', va='bottom', fontsize=14)
 
-            def parse_posthoc_dict(ph_dict):
-                parsed = {g: [] for g in group_order}
-                if not isinstance(ph_dict, dict):
-                    return parsed
-                for comp, txt in ph_dict.items():
-                    try:
-                        g1, g2 = comp.split(" vs ")
-                        pval = float(txt.split("p (Holm-global) = ")[1])
-                    except:
-                        continue
-                    if pval < 0.05:
-                        # metti in g1 il simbolo di g2
-                        parsed[g1].append(SYMBOL_MAP[g2])
+        # --- Parsing Post-hoc e simboli sopra ---
+        def parse_posthoc_dict(ph_dict):
+            parsed = {g: [] for g in group_order}
+            if not isinstance(ph_dict, dict):
                 return parsed
+            for comp, txt in ph_dict.items():
+                try:
+                    g1, g2 = comp.split(" vs ")
+                    pval = float(txt.split("p (Holm-global) = ")[1])
+                except:
+                    continue
+                if pval < 0.05:
+                    parsed[g1].append(SYMBOL_MAP[g2])
+            return parsed
 
-            sig_all = parse_posthoc_dict(post_hoc_all)
-            sig_frontal = parse_posthoc_dict(post_hoc_frontal)
+        sig_all = parse_posthoc_dict(post_hoc_all)
+        sig_frontal = parse_posthoc_dict(post_hoc_frontal)
 
-            # Ora aggiungi linee verticali e simboli:
+        # Dashed lines: medie All Channels per gruppo
+        for i, g in enumerate(group_order):
+            for phase, color in color_map.items():
+                mean_val = df_all.query("Group==@g & Phase_Assigned==@phase")[feature_name].mean()
+                if not np.isnan(mean_val):
+                    x = i + offset[phase]
+                    plt.hlines(mean_val, x - 0.15, x + 0.15, colors=color, linestyles='--', linewidth=2)
+
+        # Dashed lines: medie Frontal Channels per gruppo
+        if not df_frontal.empty:
             for i, g in enumerate(group_order):
-                e_all = channel_means_all.query("Group==@g & Phase_Assigned=='Early'")[feature_name].mean()
-                l_all = channel_means_all.query("Group==@g & Phase_Assigned=='Late'")[feature_name].mean()
-                if g in sig_all and sig_all[g]:
-                    y0 = max(e_all, l_all) + 0.02 * (y_max - y_min)
-                    plt.text(i + 0.05, y0, ''.join(sig_all[g]),
-                             ha='center', va='bottom', fontsize=16, color='black')
+                for phase in ['Early', 'Late']:
+                    mean_val = df_frontal.query("Group==@g & Phase_Assigned==@phase")[feature_name].mean()
+                    if not np.isnan(mean_val):
+                        x = i + offset[phase]
+                        plt.hlines(mean_val, x - 0.15, x + 0.15, colors='green', linestyles='--', linewidth=2)
 
-                if not channel_means_selected.empty:
-                    e_f = channel_means_selected.query("Group==@g & Phase_Assigned=='Early'")[feature_name].mean()
-                    l_f = channel_means_selected.query("Group==@g & Phase_Assigned=='Late'")[feature_name].mean()
-                    if g in sig_frontal and sig_frontal[g]:
-                        y0f = max(e_f, l_f) + 0.02 * (y_max - y_min)
-                        plt.text(i - 0.05, y0f, ''.join(sig_frontal[g]),
-                                 ha='center', va='bottom', fontsize=16, color='green')
+        # --- Titolo, assi, legenda ---
+        plt.xlabel('Groups', fontsize=12)
+        plt.ylabel('Sample Entropy', fontsize=12)
+        plt.title(f"Distribution of channel-wise means", fontsize=14)
+        plt.xticks(range(len(group_order)), group_order, fontsize= 12)
 
-            # Resto del plotting...
-            plt.xlabel('Groups', fontsize=12)
-            plt.ylabel(feature_name, fontsize=12)
-            plt.title(f"Distribution of channel-wise means", fontsize=14)
-            #y_max_rounded = np.ceil(y_max / 20) * 20
-            #plt.yticks(np.arange(0, y_max_rounded + 1, 20)) # ad esempio 10 valori equidistanti
-            #plt.grid(axis='y', linestyle='--', alpha=0.7)
-            plt.xticks(range(len(group_order)), group_order)
-            # Gestione legenda
-            handles, labels = plt.gca().get_legend_handles_labels()
-            # Aggiungi descrizione simboli post-hoc
-            symbol_legend = (
-                "p < 0.05:\n"
-                "+ vs. CTL\n"
-                "§ vs. DNV\n"
-                "$ vs. ADV\n"
-                "# vs. DYS\n"
-                #"* early vs. late\n"
-            )
-            plt.legend(handles, labels, loc='upper right', fontsize=8, title="Legend")
-            #plt.gcf().text(0.665, 0.25, symbol_legend, fontsize=10, verticalalignment='top')
-            plt.gcf().text(0.665, 0.84, symbol_legend, fontsize=10, verticalalignment='top')
+        # Legenda: punti e linee
+        handles = [
+            Patch(facecolor='red', edgecolor='black', label='Early - All channels'),
+            Patch(facecolor='blue', edgecolor='black', label='Late - All channels'),
+            #Patch(facecolor='green', edgecolor='black', label='Frontal channels'),
+            Line2D([0], [0], color='red', linestyle='--', linewidth=2, label='Mean - Early'),
+            Line2D([0], [0], color='blue', linestyle='--', linewidth=2, label='Mean - Late'),
+            #Line2D([0], [0], color='green', linestyle='--', linewidth=2, label='Mean - Frontal'),
+        ]
+
+        # --- Grid verticale tra i gruppi ---
+        for i in range(len(group_order) - 1):
+            x_pos = i + 0.5
+            plt.axvline(x=x_pos, color='gray', linestyle=':', linewidth=0.7, alpha=0.6)
+
+        plt.grid(axis='y', linestyle=':', linewidth=0.5, alpha=0.7)
 
 
-            plt.show()
+
+        symbol_legend = (
+            "p < 0.05:\n"
+            "+ vs. CTL\n"
+            "§ vs. DNV\n"
+            "$ vs. ADV\n"
+            "# vs. DYS\n"
+        )
+        plt.legend(handles=handles, loc='upper right', fontsize=9, title='Legend', title_fontsize=10)
+        #plt.legend(handles=handles, loc='lower right', fontsize=9)
+        plt.gcf().text(0.78, 0.90, symbol_legend, fontsize=10, verticalalignment='top')
+        #plt.gcf().text(0.78, 0.22, symbol_legend, fontsize=10, verticalalignment='top')
+        plt.ylim(0.55, None)
+
+        plt.tight_layout()
+        plt.show()
+
+    def plot_group_diff_stripplot(post_hoc_all=None, post_hoc_frontal=None):
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        import numpy as np
+        from matplotlib.patches import Patch
+        from matplotlib.lines import Line2D
+
+        SYMBOL_MAP = {
+            'CTL': '+',
+            'DNV': '§',
+            'ADV': '$',
+            'DYS': '#'
+        }
+
+        plt.figure(figsize=(12, 7))
+
+        all_vals = list(channel_means_all[feature_name])
+        if not channel_means_selected.empty:
+            all_vals += list(channel_means_selected[feature_name])
+        y_min, y_max = (min(all_vals), max(all_vals)) if all_vals else (0, 1)
+        y_range = y_max - y_min
+        symbol_gap = 0.1 * y_range
+
+        # dati "All Channels"
+        pivot = channel_means_all.pivot_table(index=['Group', 'Channel'],
+                                              columns='Phase_Assigned',
+                                              values=feature_name)
+        pivot = pivot.dropna(subset=['Early', 'Late'])
+        pivot['Diff'] = pivot['Late'] - pivot['Early']
+        #pivot['Diff'] = pivot['Early'] - pivot['Late']
+
+        pivot.reset_index(inplace=True)
+
+        # dati "Frontal + Pre Frontal"
+        if not channel_means_selected.empty:
+            pivot_frontal = channel_means_selected.pivot_table(index=['Group', 'Channel'],
+                                                               columns='Phase_Assigned',
+                                                               values=feature_name)
+            pivot_frontal = pivot_frontal.dropna(subset=['Early', 'Late'])
+            pivot_frontal['Diff'] = pivot_frontal['Late'] - pivot_frontal['Early']
+            #pivot_frontal['Diff'] = pivot_frontal['Early'] - pivot_frontal['Late']
+            pivot_frontal.reset_index(inplace=True)
+        else:
+            pivot_frontal = None
+
+        # Plot All Channels - viola, bordo nero visibile con linewidth=1.5
+        sns.stripplot(data=pivot, x='Group', y='Diff', order=group_order,
+                      jitter=True, size=7, edgecolor='black', linewidth=1.5, alpha=0.7,
+                      color='pink', label='All Channels')
+
+        # Plot Frontal + Pre Frontal - verde chiaro, bordo nero visibile
+
+        if pivot_frontal is not None:
+            sns.stripplot(data=pivot_frontal, x='Group', y='Diff', order=group_order,
+                          jitter=True, size=7, edgecolor='black', linewidth=1.5, alpha=0.7,
+                          color='green', label='Frontal channels')
+
+        # Linee medie dashed
+        means = pivot.groupby('Group')['Diff'].mean()
+        for i, g in enumerate(group_order):
+            if g in means.index:
+                plt.hlines(y=means[g], xmin=i - 0.3, xmax=i + 0.3,
+                           colors='purple', linestyles='dashed', lw=2)
+
+        if pivot_frontal is not None:
+            means_f = pivot_frontal.groupby('Group')['Diff'].mean()
+            for i, g in enumerate(group_order):
+                if g in means_f.index:
+                    plt.hlines(y=means_f[g], xmin=i - 0.3, xmax=i + 0.3,
+                               colors='green', linestyles='dashed', lw=2)
+
+        def parse_posthoc_symbols(ph_dict):
+            parsed = {g: [] for g in group_order}
+            if not isinstance(ph_dict, dict):
+                return parsed
+            for comp, txt in ph_dict.items():
+                try:
+                    g1, g2 = comp.split(" vs ")
+                    pval = float(txt.split("p (Holm-global) = ")[1])
+                except:
+                    continue
+                if pval < 0.05:
+                    parsed[g1].append(SYMBOL_MAP.get(g2, '?'))
+            return parsed
+
+        sig_symbols = parse_posthoc_symbols(post_hoc_all)
+        sig_symbols_frontal = parse_posthoc_symbols(post_hoc_frontal)
+
+        ymin, ymax = plt.ylim()
+        y_pos_all = ymin - 0.05 * (ymax - ymin)
+        y_pos_frontal = y_pos_all - 0.05 * (ymax - ymin)
+
+        for i, g in enumerate(group_order):
+            if sig_symbols.get(g):
+                plt.text(i, y_pos_all, ''.join(sig_symbols[g]),
+                         ha='center', va='top', fontsize=16, color='black')
+            if sig_symbols_frontal.get(g):
+                plt.text(i, y_pos_frontal, ''.join(sig_symbols_frontal[g]),
+                         ha='center', va='top', fontsize=16, color='green')
+
+        plt.title(f'Distribution of channel-wise mean differences (Late - Early)')
+        plt.ylabel('Late - Early Difference of Sample Entropy')
+        plt.xlabel('Group')
+        plt.xticks(fontsize=12)
+        plt.ylim(y_pos_frontal - 0.05 * (ymax - ymin), ymax)
+        plt.grid(axis='y', linestyle='--', alpha=0.6)
+
+        # Legenda manuale con punti e dashed lines
+        legend_handles = [
+            Patch(facecolor='pink', edgecolor='black', label='All Channels'),
+            #Patch(facecolor='green', edgecolor='black', label='Frontal Channels'),
+            Line2D([0], [0], color='purple', lw=1.5, linestyle='dashed', label='Mean - All Channels'),
+            #Line2D([0], [0], color='green', lw=1.5, linestyle='dashed', label='Mean - Frontal Channels')
+        ]
+        #plt.legend(handles=legend_handles, loc='lower left', fontsize=10, title="Legend")
+        plt.legend(handles=legend_handles, loc='upper right', fontsize=10, title='Legend', title_fontsize=10)
+        #plt.legend(handles=handles, loc='lower right', fontsize=9)
+        # --- Grid verticale tra i gruppi ---
+        for i in range(len(group_order) - 1):
+            x_pos = i + 0.5
+            plt.axvline(x=x_pos, color='gray', linestyle=':', linewidth=0.7, alpha=0.6)
+
+        symbol_legend = (
+            "p < 0.05:\n"
+            "+ vs. CTL\n"
+            "§ vs. DNV\n"
+            "$ vs. ADV\n"
+            "# vs. DYS\n"
+        )
+        #plt.gcf().text(0.65, 0.84, symbol_legend, fontsize=10, verticalalignment='top')
+        #plt.gcf().text(0.30, 0.24, symbol_legend, fontsize=10, verticalalignment='top')
+        plt.gcf().text(0.67, 0.86, symbol_legend, fontsize=10, verticalalignment='top')
+        plt.ylim(-0.12, None)  # imposta il limite inferiore a -2, il superiore resta automatico
+
+        plt.show()
 
     #all_pvals = compare_early_late(channel_means_all, feature_name, label="All Channels")
     #frontal_pvals = compare_early_late(channel_means_selected, feature_name, label="Frontal Channels")
     #plot_data(post_hoc_all=post_hoc_all,post_hoc_frontal=post_hoc_frontal,all_pvals=all_pvals,frontal_pvals=frontal_pvals)
-    #plot_data(post_hoc_all=post_hoc_all, post_hoc_frontal=post_hoc_frontal)
     plot_data(post_hoc_all=None, post_hoc_frontal=None)
+    plot_group_diff_stripplot(post_hoc_all=post_hoc_all, post_hoc_frontal=post_hoc_frontal)
+
+    #plot_data(post_hoc_all=None, post_hoc_frontal=None)
 
 
 # Carica i dati
 # file_path = r"D:\TESI\prova statistica\N2N3multitaperMeanPSD_specific_channels_149\_N2N3multitaperMeanPSD_specific_channels_149_aggregated_with_phases.csv"
-#file_path = r"D:\TESI\prova statistica\N2N3ALLENTROPY_specific_channels_149\_N2N3ALLENTROPY_specific_channels_149_aggregated_with_phases.csv"
+file_path = r"D:\TESI\prova statistica\N2N3ALLENTROPY_specific_channels_149\_N2N3ALLENTROPY_specific_channels_149_aggregated_with_phases.csv"
 #file_path = r"D:\TESI\prova statistica\N3MULTISCALEENTROPY_specific_channels_149\_N3MULTISCALEENTROPY_specific_channels_149_aggregated_with_phases.csv"
 #file_path = r"D:\TESI\prova statistica\N3CORRDIM_specific_channels_149\_N3CORRDIM_specific_channels_149_aggregated_with_phases.csv"
-file_path=r"D:\TESI\prova statistica\N3CONN_specific_channels_149\_N3CONN_specific_channels_149_aggregated_with_phases.csv"
+#file_path=r"D:\TESI\prova statistica\N3CONN_specific_channels_149\_N3CONN_specific_channels_149_aggregated_with_phases.csv"
 data = pd.read_csv(file_path)
 data = data[data['Stage'] == 3]
-feature_to_analyze=["imcoh"]
+feature_to_analyze=["SampEn2"]
 '''
 feature_to_analyze = [
     "Sample Entropy", "Spectral Entropy", "Permutation Entropy",
@@ -688,9 +737,11 @@ for feature in feature_to_analyze:
     results = analyze_feature(data, feature)
 '''
 # Seleziona solo alcuni canali
-selected_channels = [27, 33, 34, 38, 39, 47, 48, 26, 20, 19, 12, 11, 3, 2, 222, 16, 22, 23, 24, 28, 29, 30, 35, 36, 40,
+'''selected_channels = [27, 33, 34, 38, 39, 47, 48, 26, 20, 19, 12, 11, 3, 2, 222, 16, 22, 23, 24, 28, 29, 30, 35, 36, 40,
                      41, 42, 49, 50, 21, 15, 7, 14, 6,
-                     207, 13, 5, 215, 4, 224, 223, 214, 206, 213, 205]  # Aggiungi i canali di interesse
+                     207, 13, 5, 215, 4, 224, 223, 214, 206, 213, 205] '''
+                      # Aggiungi i canali di interesse
+selected_channels=None
 # selected_channels=None
 # Percorso della cartella in cui salvare i file Excel
 output_dir = r"D:\TESI\excel\topographic"

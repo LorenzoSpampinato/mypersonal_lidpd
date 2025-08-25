@@ -1,2 +1,3 @@
 from .feature_extraction_single_channel import *
-from .prova_tre_features import *
+from .feature_extraction_spectral_complexity import *
+from .feature_extraction_channel_connectivity import *

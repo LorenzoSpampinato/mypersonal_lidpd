@@ -1,11 +1,13 @@
 import numpy as np
 
 # Load the .npz file
-file_path = r"C:\Users\Lorenzo\Desktop\PD020_no_mean_features_specific_channels_5.npz"
+file_path = r"C:\Users\Lorenzo\Desktop\PD020_N3conn_specific_channels_149.npz"
 data = np.load(file_path)
 
 # Print the keys of the arrays stored in the file
 print("Keys in the .npz file:", data.files)
+print("Number of connectivity channels:", len(data['connectivity_channels']))
+
 
 # Access individual arrays by their keys
 for key in data.files:

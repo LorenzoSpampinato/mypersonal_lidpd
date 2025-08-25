@@ -41,7 +41,7 @@ class EEGDataFrameGenerator:
         # The path includes the subject's patient ID, class (e.g., 'sleep stages'), and feature file name.
         feature_file_path = os.path.join(
             self.save_path, 'Features', self.only_class, self.only_patient,
-            f'{self.only_patient}_no_mean_N2N3FILTERS_specific_channels_150.npz'
+            f'{self.only_patient}_N3_SWA_specific_channels_2.npz'
         )
         print(f"Processing feature file: {feature_file_path}")
 
@@ -56,7 +56,7 @@ class EEGDataFrameGenerator:
             os.makedirs(feature_csv_dir, exist_ok=True)
 
             # Define the path where the final CSV file will be saved, including the subject's patient ID.
-            final_csv_path = os.path.join(feature_csv_dir, f'{self.only_patient}_no_mean_N2N3FILTERS_specific_channels_150.csv')
+            final_csv_path = os.path.join(feature_csv_dir, f'{self.only_patient}_N3_SWA_specific_channels_2.csv')
 
             # Save the DataFrame directly to a CSV file
             df.to_csv(final_csv_path, index=True, header=True, na_rep='NaN')
@@ -82,90 +82,54 @@ class EEGDataFrameGenerator:
     def _process_feature_file_MEAN(self, feat_file):
         """
         Processes each EEG feature file and creates the corresponding DataFrame.
-
         Parameters:
         - feat_file: Path of the EEG feature file in `.npz` format.
-
         Returns:
         - DataFrame for the single subject.
         """
         print("Start loading features data")
         npz_data = np.load(feat_file)
 
-        features_data = npz_data['data'].squeeze()  # Shape: (n_regions, n_features, n_samples)
+        features_data = npz_data['data'].squeeze()  # Shape: (channels, features, epochs)
         print(f"Shape of features_data: {features_data.shape}")
 
-        n_regions, n_features, n_samples = features_data.shape
-        print(f"Number of regions: {n_regions}, features: {n_features}, samples: {n_samples}")
+        if features_data.ndim == 2:
+            features_data = np.expand_dims(features_data, axis=1)  # shape: (channels, 1, epochs)
 
-        for i, region_data in enumerate(features_data):
-            print(f"Region {i}: shape {region_data.shape}")
+        n_channels, n_features, n_epochs = features_data.shape
+        print(f"Number of channels: {n_channels}, features: {n_features}, epochs: {n_epochs}")
 
-        # **Reshape delle feature**
-        reshaped_features = [region_data.reshape(-1, region_data.shape[-1]) for region_data in features_data]
-        feature_matrix = np.concatenate(reshaped_features, axis=-1)
-        print(f"Feature matrix shape: {feature_matrix.shape}")
+        # Trasforma in shape (n_channels * n_epochs, n_features)
+        features_reshaped = features_data.transpose(0, 2, 1).reshape(-1, n_features)
+        print(f"Correct reshaped feature matrix shape: {features_reshaped.shape}")
 
-        # **Estrarre metadati**
+        # Estrai metadati
         group = self._extract_group(feat_file)
         subject_id = self._extract_subject_id(feat_file)
-        brain_regions = self._extract_brain_regions(feat_file)
+        epoch_labels = self._extract_epoch_labels(feat_file)
         indices = self._extract_selected_indices(feat_file)
-        epoch_labels = self._extract_epoch_labels(feat_file)  # **Nuovo metadato**
+        channels = self._extract_channels(feat_file)
 
-        print(f"Group: {group}")
-        print(f"Subject ID: {subject_id}")
-        print(f"Brain regions: {brain_regions}")
-        print(f"Selected indices (epochs): {indices}")
-        print(f"Epoch labels (sleep stages): {epoch_labels}")
+        # Controlli
+        if len(indices) != n_epochs:
+            print("Mismatch tra numero di epoche e shape dei dati!")
+        if len(channels) != n_channels:
+            print("Mismatch tra numero di canali e shape dei dati!")
 
-        # **Determinare il numero di ripetizioni per epoca**
-        if 'channels' in npz_data:
-            channels = self._extract_channels(feat_file)
-            print(f"Channels: {channels}")
-            num_repeats = len(channels)  # Numero di ripetizioni per ogni epoca
-        else:
-            num_repeats = len(brain_regions)  # Numero di ripetizioni per ogni epoca
+        # Crea MultiIndex (Group, Subject, Epoch, Channel)
+        row_index = pd.MultiIndex.from_tuples(
+            [(group[0], subject_id[0], ep, ch) for ch in channels for ep in indices],
+            names=['Group', 'Subject', 'Epoch', 'Channel']
+        )
 
-        # **Ripetere gli indici delle epoche e le etichette**
-        expanded_indices = np.repeat(indices, num_repeats)
-        expanded_epoch_labels = np.repeat(epoch_labels, num_repeats)
+        # Espandi le etichette delle epoche per ogni canale
+        expanded_labels = np.tile(epoch_labels, len(channels))
 
-        print(f"Expanded epoch indices shape: {expanded_indices.shape}")
-        print(f"Expanded epoch labels shape: {expanded_epoch_labels.shape}")
-
-        # **Costruire MultiIndex con la logica ORIGINALE**
-        if 'channels' in npz_data:
-            row_labels = pd.MultiIndex.from_product(
-                [group, subject_id, indices, channels],
-                names=['Group', 'Subject', 'Epochs', 'Channel']
-            )
-        else:
-            row_labels = pd.MultiIndex.from_product(
-                [group, subject_id, indices, brain_regions],
-                names=['Group', 'Subject', 'Epochs', 'Brain region']
-            )
-
-        # **Estrarre nomi delle feature**
-        feature_names = self._extract_feature_names(feat_file)
-        print(f"Feature names: {feature_names}")
-
-        # **Creare DataFrame**
-        print("Creating DataFrame")
-        # Creare DataFrame
-        print("Creating DataFrame")
-        # Aggiungere epoch_labels come colonna separata, prima delle features
-        df = pd.DataFrame(feature_matrix.T, index=row_labels, columns=feature_names)
-
-        # Aggiungere la colonna "Epoch Stage" prima delle features
-        df["Stage"] = expanded_epoch_labels
-
-        # Riordinare le colonne in modo che "Epoch Stage" sia prima delle features
-        cols = ["Stage"] + [col for col in df.columns if col != "Epoch Stage"]
-        df = df[cols]
+        # Crea il DataFrame
+        df = pd.DataFrame(features_reshaped, index=row_index, columns=self._extract_feature_names(feat_file))
+        df.insert(0, "Stage", expanded_labels)
 
         print(f"DataFrame created with shape: {df.shape}")
-
         return df
 
     def _extract_group(self, feat_file):
